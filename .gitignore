@@ -1,0 +1,13 @@
+localization/*/*
+!localization/*/en-US.ini
+!localization/*/.keep
+
+sprites/*
+sprites_tmp/*
+!sprites/.keep
+!sprites_tmp/.keep
+
+textures/*
+textures_tmp/*
+!textures/.keep
+!textures_tmp/.keep
