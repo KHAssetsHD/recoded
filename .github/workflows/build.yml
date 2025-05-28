@@ -1,4 +1,4 @@
-name: Auto Release
+name: Release with Asset Downloader
 
 on:
   push:
@@ -8,28 +8,123 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          lfs: true
 
-      - name: Install 7z
-        run: sudo apt-get update && sudo apt-get install -y p7zip-full
+      - name: Get short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Get commit short SHA
-        id: vars
-        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      - name: List all files (excluding ignored)
+        run: |
+          echo "📃 Finding all files in repo (excluding .gitignore and .gitattributes)..."
+          find . -type f \
+            ! -path './.git/*' \
+            ! -path './.github/*' \
+            ! -name ".gitignore" \
+            ! -name ".gitattributes" \
+            | sed 's|^\./||' > all_files.txt
 
-      - name: Compress repo using 7z (excluding .git and workflows)
-        run: 7z a release.7z . -xr!.git -xr!.github
+      - name: Generate download_assets.sh
+        run: |
+          echo '#!/bin/bash' > download_assets.sh
+          echo '' >> download_assets.sh
+          echo 'FILES=(' >> download_assets.sh
+          find . -type f \
+            ! -path './.git/*' \
+            ! -path './.github/*' \
+            ! -name ".gitignore" \
+            ! -name ".gitattributes" \
+            ! -name "download_assets.sh" \
+            | sed 's|^\./||' | while read FILE; do
+              printf '  "%s"\n' "$FILE" >> download_assets.sh
+          done
+          echo ')' >> download_assets.sh
+          echo '' >> download_assets.sh
+
+          echo 'OWNER="KHAssetsHD"' >> download_assets.sh
+          echo 'REPO="recoded"' >> download_assets.sh
+          echo 'REF="main"' >> download_assets.sh
+          echo '' >> download_assets.sh
+          echo 'for FILE in "${FILES[@]}"; do' >> download_assets.sh
+          echo '  EXT="${FILE##*.}"' >> download_assets.sh
+          echo '  if [ "$EXT" = "mp4" ]; then' >> download_assets.sh
+          echo '    BASE_URL="https://media.githubusercontent.com/media/$OWNER/$REPO/refs/heads/$REF"' >> download_assets.sh
+          echo '  else' >> download_assets.sh
+          echo '    BASE_URL="https://raw.githubusercontent.com/$OWNER/$REPO/$REF"' >> download_assets.sh
+          echo '  fi' >> download_assets.sh
+          echo '  URL="$BASE_URL/$FILE"' >> download_assets.sh
+          echo '  if [ "$EXT" = "mp4" ]; then' >> download_assets.sh
+          echo '    URL="$URL?download=true"' >> download_assets.sh
+          echo '  fi' >> download_assets.sh
+          echo '  DEST="./assets/$REPO/$FILE"' >> download_assets.sh
+          echo '  echo "⬇️ Downloading $FILE..."' >> download_assets.sh
+          echo '  mkdir -p "$(dirname "$DEST")"' >> download_assets.sh
+          echo '  curl -L --fail -o "$DEST" "$URL"' >> download_assets.sh
+          echo '  if [ $? -ne 0 ]; then' >> download_assets.sh
+          echo '    echo "❌ Failed to download: $FILE"' >> download_assets.sh
+          echo '  else' >> download_assets.sh
+          echo '    echo "✅ Saved to: $DEST"' >> download_assets.sh
+          echo '  fi' >> download_assets.sh
+          echo 'done' >> download_assets.sh
+          echo '' >> download_assets.sh
+          echo 'echo "🏁 All done."' >> download_assets.sh
+
+          chmod +x download_assets.sh
+
+      - name: Generate download_assets.bat
+        run: |
+          echo '@echo off' > download_assets.bat
+          echo 'setlocal enabledelayedexpansion' >> download_assets.bat
+          echo 'set OWNER=KHAssetsHD' >> download_assets.bat
+          echo 'set REPO=recoded' >> download_assets.bat
+          echo 'set REF=main' >> download_assets.bat
+          echo '' >> download_assets.bat
+          echo 'REM File list' >> download_assets.bat
+          echo 'set FILES=' >> download_assets.bat
+          for FILE in $(cat all_files.txt); do
+            ESCAPED=$(echo "$FILE" | sed 's/\\/\\\\/g' | sed 's/"/""/g')
+            echo 'set FILES=!FILES! "'$ESCAPED'"' >> download_assets.bat
+          done
+          echo '' >> download_assets.bat
+
+          echo 'for %%F in (!FILES!) do (' >> download_assets.bat
+          echo '  set "FILE=%%~F"' >> download_assets.bat
+          echo '  set "EXT=%%~xF"' >> download_assets.bat
+          echo '  if /I "!EXT!"==".mp4" (' >> download_assets.bat
+          echo '    set "BASE_URL=https://media.githubusercontent.com/media/%OWNER%/%REPO%/refs/heads/%REF%"' >> download_assets.bat
+          echo '    set "URL=!BASE_URL!/!FILE!?download=true"' >> download_assets.bat
+          echo '  ) else (' >> download_assets.bat
+          echo '    set "BASE_URL=https://raw.githubusercontent.com/%OWNER%/%REPO%/%REF%"' >> download_assets.bat
+          echo '    set "URL=!BASE_URL!/!FILE!"' >> download_assets.bat
+          echo '  )' >> download_assets.bat
+          echo '' >> download_assets.bat
+          echo '  echo ⬇️ Downloading !FILE!' >> download_assets.bat
+          echo '  powershell -Command "New-Item -ItemType Directory -Force -Path (Split-Path -Parent \"!FILE!\") > $null"' >> download_assets.bat
+          echo '  powershell -Command "Invoke-WebRequest -Uri \"!URL!\" -OutFile \"!FILE!\""' >> download_assets.bat
+          echo '  if exist "!FILE!" (' >> download_assets.bat
+          echo '    echo ✅ Saved to: !FILE!' >> download_assets.bat
+          echo '  ) else (' >> download_assets.bat
+          echo '    echo ❌ Failed to download: !FILE!' >> download_assets.bat
+          echo '  )' >> download_assets.bat
+          echo ')' >> download_assets.bat
+          echo 'echo 🏁 All done.' >> download_assets.bat
+
+      - name: Package downloader
+        run: |
+          cp download_assets.sh download_assets_linux.sh
+          cp download_assets.sh download_assets_macos.sh
+          mv download_assets.bat download_assets_windows.bat
+          zip download_assets.zip download_assets_linux.sh download_assets_macos.sh download_assets_windows.bat
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          name: "Release ${{ steps.vars.outputs.sha_short }}"
-          tag_name: "commit-${{ steps.vars.outputs.sha_short }}"
-          body: "Auto release for commit ${{ steps.vars.outputs.sha_short }}"
-          files: release.7z
+          name: "Release ${{ steps.sha.outputs.short }}"
+          tag_name: "commit-${{ steps.sha.outputs.short }}"
+          body: "Auto release with download script for all repo assets"
+          files: download_assets.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
