@@ -1,0 +1,33 @@
+name: Auto Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install 7z
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full
+
+      - name: Get commit short SHA
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Compress repo using 7z (excluding .git and workflows)
+        run: 7z a release.7z . -xr!.git -xr!.github
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: "Release ${{ steps.vars.outputs.sha_short }}"
+          tag_name: "commit-${{ steps.vars.outputs.sha_short }}"
+          body: "Auto release for commit ${{ steps.vars.outputs.sha_short }}"
+          files: release.7z
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
